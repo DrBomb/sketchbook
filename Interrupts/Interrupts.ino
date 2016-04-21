@@ -25,8 +25,8 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   if(digitalRead(CONTROLPIN) == HIGH && flag == false){
-    time = map(analogRead(POTPIN),0,1023,0,MAXTIME);
     pulsewidth = map(analogRead(DELAYPIN),0,1023,0,5000);
+    time = map(analogRead(POTPIN),0,1023,0,MAXTIME-(pulsewidth+100));
   }
   if(DEBUG){
     Serial.print(time);
