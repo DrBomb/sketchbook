@@ -29,8 +29,14 @@
 #define strncasecmp_P(f1, f2, len) strncasecmp((f1), (f2), (len))
 #endif
 
+#define ADAFRUIT_MQTT_VERSION_MAJOR 0
+#define ADAFRUIT_MQTT_VERSION_MINOR 16
+#define ADAFRUIT_MQTT_VERSION_PATCH 1
+
 // Uncomment/comment to turn on/off debug output messages.
 //#define MQTT_DEBUG
+// Uncomment/comment to turn on/off error output messages.
+#define MQTT_ERROR
 
 // Set where debug messages will be printed.
 #define DEBUG_PRINTER Serial
@@ -45,6 +51,16 @@
   #define DEBUG_PRINT(...) {}
   #define DEBUG_PRINTLN(...) {}
   #define DEBUG_PRINTBUFFER(buffer, len) {}
+#endif
+
+#ifdef MQTT_ERROR
+  #define ERROR_PRINT(...) { DEBUG_PRINTER.print(__VA_ARGS__); }
+  #define ERROR_PRINTLN(...) { DEBUG_PRINTER.println(__VA_ARGS__); }
+  #define ERROR_PRINTBUFFER(buffer, len) { printBuffer(buffer, len); }
+#else
+  #define ERROR_PRINT(...) {}
+  #define ERROR_PRINTLN(...) {}
+  #define ERROR_PRINTBUFFER(buffer, len) {}
 #endif
 
 // Use 3 (MQTT 3.0) or 4 (MQTT 3.1.1)
@@ -68,9 +84,10 @@
 #define MQTT_QOS_1 0x1
 #define MQTT_QOS_0 0x0
 
-#define CONNECT_TIMEOUT_MS 3000
+#define CONNECT_TIMEOUT_MS 6000
 #define PUBLISH_TIMEOUT_MS 500
 #define PING_TIMEOUT_MS    500
+#define SUBACK_TIMEOUT_MS  500
 
 // Adjust as necessary, in seconds.  Default to 5 minutes.
 #define MQTT_CONN_KEEPALIVE 300
@@ -78,7 +95,7 @@
 // Largest full packet we're able to send.
 // Need to be able to store at least ~90 chars for a connect packet with full
 // 23 char client ID.
-#define MAXBUFFERSIZE (125)
+#define MAXBUFFERSIZE (150)
 
 #define MQTT_CONN_USERNAMEFLAG    0x80
 #define MQTT_CONN_PASSWORDFLAG    0x40
@@ -95,11 +112,18 @@
 // eg max-subscription-payload-size
 #define SUBSCRIPTIONDATALEN 20
 
-//Function pointer called CallbackType that takes a float
-//and returns an int
-typedef void (*SubscribeCallbackType)(char *);  
+class AdafruitIO_Feed;  // forward decl
 
-extern void printBuffer(uint8_t *buffer, uint8_t len);
+//Function pointer that returns an int
+typedef void (*SubscribeCallbackUInt32Type)(uint32_t);
+// returns a double
+typedef void (*SubscribeCallbackDoubleType)(double);
+// returns a chunk of raw data
+typedef void (*SubscribeCallbackBufferType)(char *str, uint16_t len);
+// returns an io data wrapper instance
+typedef void (AdafruitIO_Feed::*SubscribeCallbackIOType)(char *str, uint16_t len);
+
+extern void printBuffer(uint8_t *buffer, uint16_t len);
 
 class Adafruit_MQTT_Subscribe;  // forward decl
 
@@ -110,19 +134,11 @@ class Adafruit_MQTT {
                 const char *cid,
                 const char *user,
                 const char *pass);
-  Adafruit_MQTT(const __FlashStringHelper *server,
-                uint16_t port,
-                const __FlashStringHelper *cid,
-                const __FlashStringHelper *user,
-                const __FlashStringHelper *pass);
+
   Adafruit_MQTT(const char *server,
                 uint16_t port,
-                const char *user,
-                const char *pass);
-  Adafruit_MQTT(const __FlashStringHelper *server,
-                uint16_t port,
-                const __FlashStringHelper *user,
-                const __FlashStringHelper *pass);
+                const char *user = "",
+                const char *pass = "");
   virtual ~Adafruit_MQTT() {}
 
   // Connect to the MQTT server.  Returns 0 on success, otherwise an error code
@@ -137,6 +153,7 @@ class Adafruit_MQTT {
   // Use connectErrorString() to get a printable string version of the
   // error.
   int8_t connect();
+  int8_t connect(const char *user, const char *pass);
 
   // Return a printable string version of the error code returned by
   // connect(). This returns a __FlashStringHelper*, which points to a
@@ -154,19 +171,11 @@ class Adafruit_MQTT {
   // to be called before connect() because it is sent as part of the
   // connect control packet.
   bool will(const char *topic, const char *payload, uint8_t qos = 0, uint8_t retain = 0);
-  bool will(const __FlashStringHelper *topic, const char *payload, uint8_t qos = 0, uint8_t retain = 0) {
-    return will((const char *)topic, payload, qos, retain);
-  }
 
   // Publish a message to a topic using the specified QoS level.  Returns true
   // if the message was published, false otherwise.
-  // The topic must be stored in PROGMEM. It can either be a
-  // char*, or a __FlashStringHelper* (the result of the F() macro).
   bool publish(const char *topic, const char *payload, uint8_t qos = 0);
-  bool publish(const char *topic, uint8_t *payload, uint8_t bLen, uint8_t qos = 0);
-  bool publish(const __FlashStringHelper *topic, const char *payload, uint8_t qos = 0) {
-    return publish((const char *)topic, payload, qos);
-  }
+  bool publish(const char *topic, uint8_t *payload, uint16_t bLen, uint8_t qos = 0);
 
   // Add a subscription to receive messages for a topic.  Returns true if the
   // subscription could be added or was already present, false otherwise.
@@ -183,6 +192,8 @@ class Adafruit_MQTT {
   // that subscribe should be called first for each topic that receives messages!
   Adafruit_MQTT_Subscribe *readSubscription(int16_t timeout=0);
 
+  void processPackets(int16_t timeout);
+
   // Ping the server to ensure the connection is still alive.
   bool ping(uint8_t n = 1);
 
@@ -196,15 +207,15 @@ class Adafruit_MQTT {
   virtual bool disconnectServer() = 0;  // Subclasses need to fill this in!
 
   // Send data to the server specified by the buffer and length of data.
-  virtual bool sendPacket(uint8_t *buffer, uint8_t len) = 0;
+  virtual bool sendPacket(uint8_t *buffer, uint16_t len) = 0;
 
   // Read MQTT packet from the server.  Will read up to maxlen bytes and store
   // the data in the provided buffer.  Waits up to the specified timeout (in
   // milliseconds) for data to be available. 
-  virtual uint16_t readPacket(uint8_t *buffer, uint8_t maxlen, int16_t timeout) = 0;
+  virtual uint16_t readPacket(uint8_t *buffer, uint16_t maxlen, int16_t timeout) = 0;
 
   // Read a full packet, keeping note of the correct length
-  uint16_t readFullPacket(uint8_t *buffer, uint16_t timeout);
+  uint16_t readFullPacket(uint8_t *buffer, uint16_t maxsize, uint16_t timeout);
   // Properly process packets until you get to one you want
   uint16_t processPacketsUntil(uint8_t *buffer, uint8_t waitforpackettype, uint16_t timeout);
 
@@ -229,7 +240,7 @@ class Adafruit_MQTT {
   // Functions to generate MQTT packets.
   uint8_t connectPacket(uint8_t *packet);
   uint8_t disconnectPacket(uint8_t *packet);
-  uint8_t publishPacket(uint8_t *packet, const char *topic, uint8_t *payload, uint8_t bLen, uint8_t qos);
+  uint16_t publishPacket(uint8_t *packet, const char *topic, uint8_t *payload, uint16_t bLen, uint8_t qos);
   uint8_t subscribePacket(uint8_t *packet, const char *topic, uint8_t qos);
   uint8_t unsubscribePacket(uint8_t *packet, const char *topic);
   uint8_t pingPacket(uint8_t *packet);
@@ -240,14 +251,13 @@ class Adafruit_MQTT {
 class Adafruit_MQTT_Publish {
  public:
   Adafruit_MQTT_Publish(Adafruit_MQTT *mqttserver, const char *feed, uint8_t qos = 0);
-  Adafruit_MQTT_Publish(Adafruit_MQTT *mqttserver, const __FlashStringHelper *feed, uint8_t qos = 0);
 
   bool publish(const char *s);
   bool publish(double f, uint8_t precision=2);  // Precision controls the minimum number of digits after decimal.
                                                 // This might be ignored and a higher precision value sent.
   bool publish(int32_t i);
   bool publish(uint32_t i);
-  bool publish(uint8_t *b, uint8_t bLen);
+  bool publish(uint8_t *b, uint16_t bLen);
 
 
 private:
@@ -259,9 +269,11 @@ private:
 class Adafruit_MQTT_Subscribe {
  public:
   Adafruit_MQTT_Subscribe(Adafruit_MQTT *mqttserver, const char *feedname, uint8_t q=0);
-  Adafruit_MQTT_Subscribe(Adafruit_MQTT *mqttserver, const __FlashStringHelper *feedname, uint8_t q=0);
 
-  void setCallback(SubscribeCallbackType callb);
+  void setCallback(SubscribeCallbackUInt32Type callb);
+  void setCallback(SubscribeCallbackDoubleType callb);
+  void setCallback(SubscribeCallbackBufferType callb);
+  void setCallback(AdafruitIO_Feed *io, SubscribeCallbackIOType callb);
   void removeCallback(void);
 
   const char *topic;
@@ -270,9 +282,16 @@ class Adafruit_MQTT_Subscribe {
   uint8_t lastread[SUBSCRIPTIONDATALEN];
   // Number valid bytes in lastread. Limited to SUBSCRIPTIONDATALEN-1 to
   // ensure nul terminating lastread.
-  uint8_t datalen;
+  uint16_t datalen;
+
+  SubscribeCallbackUInt32Type callback_uint32t;
+  SubscribeCallbackDoubleType callback_double;
+  SubscribeCallbackBufferType callback_buffer;
+  SubscribeCallbackIOType     callback_io;
+
+  AdafruitIO_Feed *io_feed;
+
  private:
-  SubscribeCallbackType callback;
   Adafruit_MQTT *mqtt;
 };
 

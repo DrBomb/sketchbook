@@ -44,7 +44,7 @@ class Adafruit_MQTT_CC3000 : public Adafruit_MQTT {
   {}
 
   Adafruit_MQTT_CC3000(Adafruit_CC3000 *cc3k, const char *server, uint16_t port,
-                       const char *user, const char *pass):
+                       const char *user = "", const char *pass = ""):
     Adafruit_MQTT(server, port, user, pass),
     cc3000(cc3k)
   {}
@@ -100,7 +100,7 @@ class Adafruit_MQTT_CC3000 : public Adafruit_MQTT {
     return mqttclient.connected();
   }
 
-  uint16_t readPacket(uint8_t *buffer, uint8_t maxlen, int16_t timeout) {
+  uint16_t readPacket(uint8_t *buffer, uint16_t maxlen, int16_t timeout) {
     /* Read data until either the connection is closed, or the idle timeout is reached. */
     uint16_t len = 0;
     int16_t t = timeout;
@@ -127,9 +127,9 @@ class Adafruit_MQTT_CC3000 : public Adafruit_MQTT {
     return len;
   }
 
-  bool sendPacket(uint8_t *buffer, uint8_t len) {
+  bool sendPacket(uint8_t *buffer, uint16_t len) {
     if (mqttclient.connected()) {
-      uint16_t ret = mqttclient.write(buffer, len);
+      uint16_t ret = mqttclient.write(buffer, (size_t)len);
       DEBUG_PRINT(F("sendPacket returned: ")); DEBUG_PRINTLN(ret);
       if (ret != len) {
         DEBUG_PRINTLN("Failed to send complete packet.")

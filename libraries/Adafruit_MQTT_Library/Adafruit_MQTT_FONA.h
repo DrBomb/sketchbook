@@ -42,14 +42,14 @@ class Adafruit_MQTT_FONA : public Adafruit_MQTT {
   {}
 
   Adafruit_MQTT_FONA(Adafruit_FONA *f, const char *server, uint16_t port,
-                     const char *user, const char *pass):
+                     const char *user="", const char *pass=""):
     Adafruit_MQTT(server, port, user, pass),
     fona(f)
   {}
 
   bool connectServer() {
     char server[40];
-    strncpy_P(server, servername, 40);
+    strncpy(server, servername, 40);
 #ifdef ADAFRUIT_SLEEPYDOG_H
     Watchdog.reset();
 #endif
@@ -68,7 +68,7 @@ class Adafruit_MQTT_FONA : public Adafruit_MQTT {
     return fona->TCPconnected();
   }
 
-  uint16_t readPacket(uint8_t *buffer, uint8_t maxlen, int16_t timeout) {
+  uint16_t readPacket(uint8_t *buffer, uint16_t maxlen, int16_t timeout) {
     uint8_t *buffp = buffer;
     DEBUG_PRINTLN(F("Reading data.."));
 
@@ -117,13 +117,13 @@ class Adafruit_MQTT_FONA : public Adafruit_MQTT {
     return len;
   }
 
-  bool sendPacket(uint8_t *buffer, uint8_t len) {
+  bool sendPacket(uint8_t *buffer, uint16_t len) {
     DEBUG_PRINTLN(F("Writing packet"));
     if (fona->TCPconnected()) {
       boolean ret = fona->TCPsend((char *)buffer, len);
       //DEBUG_PRINT(F("sendPacket returned: ")); DEBUG_PRINTLN(ret);
       if (!ret) {
-        DEBUG_PRINTLN("Failed to send packet.")
+        DEBUG_PRINTLN("Failed to send packet.");
         return false;
       }
     } else {
