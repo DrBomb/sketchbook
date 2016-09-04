@@ -23,7 +23,6 @@ void loop() {
   // put your main code here, to run repeatedly:
   unsigned int index = random8(54);
   Serial.println(index);
-  //fiveScrollLeft("MuanM",8);
   mostrarNombre(index);
   mostrarNombre(index);
   //LetterColor.hue++;
